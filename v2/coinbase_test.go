@@ -49,6 +49,9 @@ func TestMyProfile(t *testing.T) {
 
 		myProfile, err := client.MyProfile()
 		if tt.wantErr {
+			if err == nil {
+				t.Errorf("#%d: expected a non-nil error", i)
+			}
 			continue
 		}
 
@@ -84,6 +87,9 @@ func TestFindProfileByID(t *testing.T) {
 
 		theirProfile, err := client.FindProfileByID(tt.profileID)
 		if tt.wantErr {
+			if err == nil {
+				t.Errorf("#%d: expected a non-nil error", i)
+			}
 			continue
 		}
 
@@ -93,6 +99,44 @@ func TestFindProfileByID(t *testing.T) {
 		}
 
 		gotBytes, wantBytes := jsonify(theirProfile), jsonify(tt.wantProfile)
+		if !bytes.Equal(gotBytes, wantBytes) {
+			t.Errorf("#%d. got =%s\nwant=%s", i, gotBytes, wantBytes)
+		}
+	}
+}
+
+func TestFindAccountByID(t *testing.T) {
+	rt := &backend{route: findAccountRoute}
+	tests := [...]struct {
+		creds       *coinbase.Credentials
+		accountID   string
+		wantErr     bool
+		wantAccount *coinbase.Account
+	}{
+		0: {creds: nil, wantErr: true},
+		1: {creds: key1, wantAccount: accountFromFileByID(accountID1), accountID: accountID1},
+		2: {creds: key1, accountID: "unknownAccountID", wantErr: true},
+	}
+
+	for i, tt := range tests {
+		client := new(coinbase.Client)
+		client.SetCredentials(tt.creds)
+		client.SetHTTPRoundTripper(rt)
+
+		account, err := client.FindAccountByID(tt.accountID)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("#%d: expected a non-nil error", i)
+			}
+			continue
+		}
+
+		if err != nil {
+			t.Errorf("#%d: unexpected error: %v", i, err)
+			continue
+		}
+
+		gotBytes, wantBytes := jsonify(account), jsonify(tt.wantAccount)
 		if !bytes.Equal(gotBytes, wantBytes) {
 			t.Errorf("#%d. got =%s\nwant=%s", i, gotBytes, wantBytes)
 		}
@@ -164,6 +208,8 @@ func TestListAccounts(t *testing.T) {
 
 const (
 	profID1 = "prof1"
+
+	accountID1 = "2bbf394c-193b-5b2a-9155-3b4732659ede"
 )
 
 func jsonify(v interface{}) []byte {
@@ -181,14 +227,42 @@ const (
 	myProfileRoute   = "/user"
 	userProfileRoute = "/users"
 	accountsRoute    = "/accounts"
+
+	findAccountRoute = "/account-id"
 )
 
 type profileWrap struct {
 	Profile *coinbase.Profile `json:"data"`
 }
 
+type accountWrap struct {
+	Account *coinbase.Account `json:"data"`
+}
+
 func profileIDPath(profID string) string {
 	return fmt.Sprintf("./testdata/profile-data-%s.json", profID)
+}
+
+func accountIDPath(accountID string) string {
+	return fmt.Sprintf("./testdata/account-%s.json", accountID)
+}
+
+func accountFromFileByID(id string) *coinbase.Account {
+	f, err := os.Open(accountIDPath(id))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	slurp, err := ioutil.ReadAll(f)
+	if err != nil {
+		return nil
+	}
+	aw := new(accountWrap)
+	if err := json.Unmarshal(slurp, aw); err != nil {
+		return nil
+	}
+	return aw.Account
 }
 
 func profileFromFile(id string) *coinbase.Profile {
@@ -217,6 +291,8 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.userProfileRoundTrip(req)
 	case accountsRoute:
 		return b.accountsRoundTrip(req)
+	case findAccountRoute:
+		return b.findAccountByIDRoundTrip(req)
 	default:
 		return makeResp("no such route", http.StatusNotFound, nil), nil
 	}
@@ -230,6 +306,29 @@ const (
 	page1AccountID = "0"
 	page2AccountID = "1"
 )
+
+func accountByIDPath(id string) string {
+	return fmt.Sprintf("./testdata/account-%s.json", id)
+}
+
+func (b *backend) findAccountByIDRoundTrip(req *http.Request) (*http.Response, error) {
+	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
+		return badAuthResp, nil
+	}
+	splits := strings.Split(req.URL.Path, "/")
+	if len(splits) < 2 {
+		return makeResp("expecting a path of /accounts/<accountID>", http.StatusBadRequest, nil), nil
+	}
+	accountID := splits[len(splits)-1]
+
+	fullPath := accountByIDPath(accountID)
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusNotFound, nil), nil
+	}
+
+	return makeResp("OK", http.StatusOK, f), nil
+}
 
 func (b *backend) accountsRoundTrip(req *http.Request) (*http.Response, error) {
 	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {

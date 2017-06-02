@@ -94,6 +94,31 @@ type pageWrap struct {
 	Accounts   []*Account  `json:"data"`
 }
 
+type accountWrap struct {
+	Account *Account `json:"data"`
+}
+
+func (c *Client) FindAccountByID(accountID string) (*Account, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, errEmptyAccountID
+	}
+	fullURL := fmt.Sprintf("%s/accounts/%s", baseURL, accountID)
+	req, err := http.NewRequest("GET", fullURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	blob, _, err := c.doAuthAndReq(req)
+	if err != nil {
+		return nil, err
+	}
+	aWrap := new(accountWrap)
+	if err := json.Unmarshal(blob, aWrap); err != nil {
+		return nil, err
+	}
+	return aWrap.Account, nil
+}
+
 func (c *Client) ListAccounts(req *AccountsRequest) (*AccountsListResponse, error) {
 	if req == nil {
 		req = new(AccountsRequest)

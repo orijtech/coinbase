@@ -73,3 +73,15 @@ func Example_client_ListAccounts() {
 		}
 	}
 }
+
+func Example_client_FindAccountByID() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+	account, err := client.FindAccountByID("2bbf394c-193b-5b2a-9155-3b4732659ede")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("The account: %+v\n", account)
+}

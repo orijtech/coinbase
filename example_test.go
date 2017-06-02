@@ -85,3 +85,19 @@ func Example_client_FindAccountByID() {
 	}
 	fmt.Printf("The account: %+v\n", account)
 }
+
+func Example_client_CreateAccount() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	createdAccount, err := client.CreateAccount(&coinbase.CreateAccountRequest{
+		Name: "Come As You Are",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Newly created account; %+v\n", createdAccount)
+}

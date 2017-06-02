@@ -15,6 +15,7 @@
 package coinbase
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,6 +79,8 @@ type AccountsPage struct {
 
 var (
 	errEmptyAccountID = errors.New("expecting a non-empty accountID")
+
+	errBlankName = errors.New("expecting a non-blank name")
 )
 
 type pagination struct {
@@ -98,6 +101,33 @@ type accountWrap struct {
 	Account *Account `json:"data"`
 }
 
+type CreateAccountRequest struct {
+	Name string `json:"name"`
+}
+
+func (creq *CreateAccountRequest) Validate() error {
+	if creq == nil || strings.TrimSpace(creq.Name) == "" {
+		return errBlankName
+	}
+	return nil
+}
+
+func (c *Client) CreateAccount(creq *CreateAccountRequest) (*Account, error) {
+	if err := creq.Validate(); err != nil {
+		return nil, err
+	}
+	blob, err := json.Marshal(creq)
+	if err != nil {
+		return nil, err
+	}
+	fullURL := fmt.Sprintf("%s/accounts", baseURL)
+	req, err := http.NewRequest("POST", fullURL, bytes.NewReader(blob))
+	if err != nil {
+		return nil, err
+	}
+	return c.authAndRetrieveAccount(req)
+}
+
 func (c *Client) FindAccountByID(accountID string) (*Account, error) {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
@@ -108,6 +138,10 @@ func (c *Client) FindAccountByID(accountID string) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
+	return c.authAndRetrieveAccount(req)
+}
+
+func (c *Client) authAndRetrieveAccount(req *http.Request) (*Account, error) {
 	blob, _, err := c.doAuthAndReq(req)
 	if err != nil {
 		return nil, err

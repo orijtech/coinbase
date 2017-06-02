@@ -112,6 +112,37 @@ func (creq *CreateAccountRequest) Validate() error {
 	return nil
 }
 
+type UpdateAccountRequest struct {
+	Name string `json:"name"`
+	ID   string `json:"account_id"`
+}
+
+func (ureq *UpdateAccountRequest) Validate() error {
+	if ureq == nil || strings.TrimSpace(ureq.ID) == "" {
+		return errEmptyAccountID
+	}
+	if strings.TrimSpace(ureq.Name) == "" {
+		return errBlankName
+	}
+	return nil
+}
+
+func (c *Client) UpdateAccount(ureq *UpdateAccountRequest) (*Account, error) {
+	if err := ureq.Validate(); err != nil {
+		return nil, err
+	}
+	fullURL := fmt.Sprintf("%s/accounts/%s", baseURL, ureq.ID)
+	blob, err := json.Marshal(map[string]string{"name": ureq.Name})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("PUT", fullURL, bytes.NewReader(blob))
+	if err != nil {
+		return nil, err
+	}
+	return c.authAndRetrieveAccount(req)
+}
+
 func (c *Client) CreateAccount(creq *CreateAccountRequest) (*Account, error) {
 	if err := creq.Validate(); err != nil {
 		return nil, err

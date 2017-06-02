@@ -185,6 +185,54 @@ func TestCreateAccount(t *testing.T) {
 	}
 }
 
+func TestUpdateAccount(t *testing.T) {
+	rt := &backend{route: updateAccountRoute}
+	tests := [...]struct {
+		creds   *coinbase.Credentials
+		ureq    *coinbase.UpdateAccountRequest
+		wantErr bool
+	}{
+		0: {creds: nil, wantErr: true},
+		1: {
+			creds: key1,
+			ureq: &coinbase.UpdateAccountRequest{
+				Name: "cool calm collected",
+				ID:   "2bbf394c-193b-5b2a-9155-3b4732659ede",
+			},
+		},
+		2: {creds: key1, ureq: &coinbase.UpdateAccountRequest{Name: " "}, wantErr: true},
+		3: {creds: key1, ureq: &coinbase.UpdateAccountRequest{Name: ""}, wantErr: true},
+	}
+
+	for i, tt := range tests {
+		client := new(coinbase.Client)
+		client.SetCredentials(tt.creds)
+		client.SetHTTPRoundTripper(rt)
+
+		updatedAccount, err := client.UpdateAccount(tt.ureq)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("#%d: expected a non-nil error", i)
+			}
+			continue
+		}
+
+		if err != nil {
+			t.Errorf("#%d: unexpected error: %v", i, err)
+			continue
+		}
+
+		if updatedAccount == nil {
+			t.Errorf("#%d: expected a non-nil updated account", i)
+			continue
+		}
+		var blankAccount coinbase.Account
+		if *updatedAccount == blankAccount {
+			t.Errorf("#%d: expected a non blank updated account")
+		}
+	}
+}
+
 func TestListAccounts(t *testing.T) {
 	rt := &backend{route: accountsRoute}
 	tests := [...]struct {
@@ -273,6 +321,7 @@ const (
 	findAccountRoute = "/account-id"
 
 	createAccountRoute = "/create-account"
+	updateAccountRoute = "/update-account"
 )
 
 type profileWrap struct {
@@ -339,6 +388,8 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.findAccountByIDRoundTrip(req)
 	case createAccountRoute:
 		return b.createAccountRoundTrip(req)
+	case updateAccountRoute:
+		return b.updateAccountRoundTrip(req)
 	default:
 		return makeResp("no such route", http.StatusNotFound, nil), nil
 	}
@@ -412,6 +463,51 @@ func (b *backend) myProfileRoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	return makeResp("OK", http.StatusOK, f), nil
+}
+
+func (b *backend) updateAccountRoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != "PUT" {
+		return makeResp(`only accepting method "PUT"`, http.StatusMethodNotAllowed, nil), nil
+	}
+
+	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
+		return badAuthResp, nil
+	}
+
+	// Expecting a URL path of the form:
+	// /v2/accounts/<account_id>
+	splits := strings.Split(req.URL.Path, "/")
+	if len(splits) < 3 {
+		return makeResp("invalid URL expecting /accounts/<account_id>", http.StatusBadRequest, nil), nil
+	}
+	accountID := splits[len(splits)-1]
+
+	if req.Body == nil {
+		return makeResp("expecting a non-empty body", http.StatusBadRequest, nil), nil
+	}
+
+	blob, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusBadRequest, nil), nil
+	}
+	recv := new(coinbase.UpdateAccountRequest)
+	if err := json.Unmarshal(blob, recv); err != nil {
+		return makeResp(err.Error(), http.StatusBadRequest, nil), nil
+	}
+	var blankUReq coinbase.UpdateAccountRequest
+	if *recv == blankUReq {
+		return makeResp("failed to parse an updateAccountRequest", http.StatusBadRequest, nil), nil
+	}
+
+	// Otherwise, retrieve and send back that requested account
+	fullPath := accountByIDPath(accountID)
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusNotFound, nil), nil
+	}
+
+	return makeResp("OK", http.StatusOK, f), nil
+
 }
 
 func (b *backend) createAccountRoundTrip(req *http.Request) (*http.Response, error) {

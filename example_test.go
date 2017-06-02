@@ -101,3 +101,20 @@ func Example_client_CreateAccount() {
 
 	fmt.Printf("Newly created account; %+v\n", createdAccount)
 }
+
+func Example_client_UpdateAccount() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	updatedAccount, err := client.UpdateAccount(&coinbase.UpdateAccountRequest{
+		Name: "Main BTC Wallet",
+		ID:   "82de7fcd-db72-5085-8ceb-bee19303080b",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Updated account; %+v\n", updatedAccount)
+}

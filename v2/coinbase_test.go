@@ -99,6 +99,69 @@ func TestFindProfileByID(t *testing.T) {
 	}
 }
 
+func TestListAccounts(t *testing.T) {
+	rt := &backend{route: accountsRoute}
+	tests := [...]struct {
+		creds   *coinbase.Credentials
+		req     *coinbase.AccountsRequest
+		wantErr bool
+	}{
+		0: {creds: nil, wantErr: true},
+		1: {
+			creds: key1, req: &coinbase.AccountsRequest{
+				StartingAccountID: page1AccountID,
+			},
+		},
+		2: {
+			creds: key1, req: &coinbase.AccountsRequest{
+				StartingAccountID: page2AccountID,
+			},
+		},
+	}
+
+	for i, tt := range tests {
+		client := new(coinbase.Client)
+		client.SetCredentials(tt.creds)
+		client.SetHTTPRoundTripper(rt)
+
+		// Speed up the tests by removing throttling
+		if tt.req != nil {
+			tt.req.ThrottleDurationMs = coinbase.NoThrottle
+		}
+
+		res, err := client.ListAccounts(tt.req)
+		if err != nil {
+			if !tt.wantErr {
+				t.Errorf("#%d: unexpected error: %v", i, err)
+			}
+			continue
+		}
+
+		var foundAccounts []*coinbase.Account
+		var errs []error
+		for page := range res.PagesChan {
+			if page.Err != nil {
+				errs = append(errs, page.Err)
+				continue
+			}
+			foundAccounts = append(foundAccounts, page.Accounts...)
+		}
+
+		if len(errs) > 0 {
+			if !tt.wantErr {
+				t.Errorf("#%d: unexpected errors: %#v", i, errs)
+			}
+			continue
+		}
+
+		if len(foundAccounts) == 0 {
+			if !tt.wantErr {
+				t.Errorf("#%d: expecting at least one account", i)
+			}
+		}
+	}
+}
+
 const (
 	profID1 = "prof1"
 )
@@ -117,6 +180,7 @@ var _ http.RoundTripper = (*backend)(nil)
 const (
 	myProfileRoute   = "/user"
 	userProfileRoute = "/users"
+	accountsRoute    = "/accounts"
 )
 
 type profileWrap struct {
@@ -151,9 +215,44 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.myProfileRoundTrip(req)
 	case userProfileRoute:
 		return b.userProfileRoundTrip(req)
+	case accountsRoute:
+		return b.accountsRoundTrip(req)
 	default:
 		return makeResp("no such route", http.StatusNotFound, nil), nil
 	}
+}
+
+func accountsPagePath(pageNumber int) string {
+	return fmt.Sprintf("./testdata/accounts-page-%d.json", pageNumber)
+}
+
+const (
+	page1AccountID = "0"
+	page2AccountID = "1"
+)
+
+func (b *backend) accountsRoundTrip(req *http.Request) (*http.Response, error) {
+	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
+		return badAuthResp, nil
+	}
+
+	var pageNumber int
+	query := req.URL.Query()
+	switch query.Get("starting_after") {
+	default:
+		pageNumber = 2 // Terminal page
+	case page1AccountID:
+		pageNumber = 0
+	case page2AccountID:
+		pageNumber = 1
+	}
+
+	f, err := os.Open(accountsPagePath(pageNumber))
+	if err != nil {
+		return makeResp(err.Error(), http.StatusNotFound, nil), nil
+	}
+
+	return makeResp("OK", http.StatusOK, f), nil
 }
 
 func (b *backend) myProfileRoundTrip(req *http.Request) (*http.Response, error) {

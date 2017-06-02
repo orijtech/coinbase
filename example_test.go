@@ -48,3 +48,28 @@ func Example_client_MyProfile() {
 
 	fmt.Printf("My profile: %+v\n", myProfile)
 }
+
+func Example_client_ListAccounts() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	res, err := client.ListAccounts(&coinbase.AccountsRequest{
+		MaxPage: 2,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for page := range res.PagesChan {
+		if err := page.Err; err != nil {
+			log.Printf("Page #%d err: %v", page.PageNumber, err)
+			continue
+		}
+
+		for i, account := range page.Accounts {
+			fmt.Printf("Page #%d:: (%d) Account: %#v\n", page.PageNumber, i, account)
+		}
+	}
+}

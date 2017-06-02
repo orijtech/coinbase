@@ -25,18 +25,6 @@ import (
 	"github.com/orijtech/otils"
 )
 
-type AccountsPage struct {
-}
-
-func (c *Client) ListAccounts() (chan *AccountsPage, error) {
-	pagesChan := make(chan *AccountsPage)
-	go func() {
-		defer close(pagesChan)
-	}()
-
-	return pagesChan, nil
-}
-
 type Profile struct {
 	ID        string `json:"id,omitempty"`
 	Username  string `json:"username,omitempty"`

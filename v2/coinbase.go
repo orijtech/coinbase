@@ -32,6 +32,8 @@ import (
 
 const (
 	baseURL = "https://api.coinbase.com/v2"
+
+	unversionedBaseURL = "https://api.coinbase.com"
 )
 
 type Client struct {

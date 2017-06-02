@@ -185,6 +185,42 @@ func TestCreateAccount(t *testing.T) {
 	}
 }
 
+func TestDeleteAccount(t *testing.T) {
+	rt := &backend{route: deleteAccountRoute}
+	tests := [...]struct {
+		creds     *coinbase.Credentials
+		accountID string
+		wantErr   bool
+	}{
+		0: {creds: nil, wantErr: true},
+		1: {
+			creds:     key1,
+			accountID: "2bbf394c-193b-5b2a-9155-3b4732659ede",
+		},
+		2: {creds: key1, accountID: "", wantErr: true},
+		3: {creds: key1, accountID: "   ", wantErr: true},
+	}
+
+	for i, tt := range tests {
+		client := new(coinbase.Client)
+		client.SetCredentials(tt.creds)
+		client.SetHTTPRoundTripper(rt)
+
+		err := client.DeleteAccountByID(tt.accountID)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("#%d: expected a non-nil error", i)
+			}
+			continue
+		}
+
+		if err != nil {
+			t.Errorf("#%d: unexpected error: %v", i, err)
+			continue
+		}
+	}
+}
+
 func TestUpdateAccount(t *testing.T) {
 	rt := &backend{route: updateAccountRoute}
 	tests := [...]struct {
@@ -322,6 +358,7 @@ const (
 
 	createAccountRoute = "/create-account"
 	updateAccountRoute = "/update-account"
+	deleteAccountRoute = "/delete-account"
 )
 
 type profileWrap struct {
@@ -390,6 +427,8 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.createAccountRoundTrip(req)
 	case updateAccountRoute:
 		return b.updateAccountRoundTrip(req)
+	case deleteAccountRoute:
+		return b.deleteAccountRoundTrip(req)
 	default:
 		return makeResp("no such route", http.StatusNotFound, nil), nil
 	}
@@ -463,6 +502,37 @@ func (b *backend) myProfileRoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	return makeResp("OK", http.StatusOK, f), nil
+}
+
+func (b *backend) deleteAccountRoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != "DELETE" {
+		return makeResp(`only accepting method "DELETE"`, http.StatusMethodNotAllowed, nil), nil
+	}
+
+	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
+		return badAuthResp, nil
+	}
+
+	// Expecting a URL path of the form:
+	// /v2/accounts/<account_id>
+	splits := strings.Split(req.URL.Path, "/")
+	if len(splits) < 3 {
+		return makeResp("invalid URL expecting /accounts/<account_id>", http.StatusBadRequest, nil), nil
+	}
+	accountID := splits[len(splits)-1]
+
+	// Look for existence of that ID
+	accountPath := accountByIDPath(accountID)
+	_, err := os.Stat(accountPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return makeResp(`no such account found`, http.StatusNotFound, nil), nil
+		} else {
+			return makeResp(err.Error(), http.StatusBadRequest, nil), nil
+		}
+	}
+
+	return makeResp("No Content", http.StatusNoContent, nil), nil
 }
 
 func (b *backend) updateAccountRoundTrip(req *http.Request) (*http.Response, error) {

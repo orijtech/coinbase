@@ -159,7 +159,10 @@ func (c *Client) doHTTPReq(req *http.Request) ([]byte, http.Header, error) {
 	}
 
 	if otils.StatusOK(res.StatusCode) {
-		slurp, err := ioutil.ReadAll(res.Body)
+		var slurp []byte
+		if res.Body != nil {
+			slurp, err = ioutil.ReadAll(res.Body)
+		}
 		return slurp, res.Header, err
 	}
 

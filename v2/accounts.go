@@ -159,6 +159,19 @@ func (c *Client) CreateAccount(creq *CreateAccountRequest) (*Account, error) {
 	return c.authAndRetrieveAccount(req)
 }
 
+func (c *Client) SetAccountAsPrimary(accountID string) (*Account, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, errEmptyAccountID
+	}
+	fullURL := fmt.Sprintf("%s/accounts/%s/primary", baseURL, accountID)
+	req, err := http.NewRequest("POST", fullURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	return c.authAndRetrieveAccount(req)
+}
+
 func (c *Client) DeleteAccountByID(accountID string) error {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {

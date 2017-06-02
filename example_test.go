@@ -129,3 +129,17 @@ func Example_client_DeleteAccountByID() {
 		log.Fatal(err)
 	}
 }
+
+func Example_client_SetAccountAsPrimary() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	updatedAccount, err := client.SetAccountAsPrimary("82de7fcd-db72-5085-8ceb-bee19303080b")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Updated account; %+v\n", updatedAccount)
+}

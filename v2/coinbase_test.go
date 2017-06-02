@@ -180,7 +180,7 @@ func TestCreateAccount(t *testing.T) {
 		}
 		var blankAccount coinbase.Account
 		if *account == blankAccount {
-			t.Errorf("#%d: expected a non blank account")
+			t.Errorf("#%d: expected a non blank account", i)
 		}
 	}
 }
@@ -217,6 +217,54 @@ func TestDeleteAccount(t *testing.T) {
 		if err != nil {
 			t.Errorf("#%d: unexpected error: %v", i, err)
 			continue
+		}
+	}
+}
+
+func TestSetAccountAsPrimary(t *testing.T) {
+	rt := &backend{route: setAccountAsPrimaryRoute}
+	tests := [...]struct {
+		creds     *coinbase.Credentials
+		accountID string
+		wantErr   bool
+	}{
+		0: {creds: nil, wantErr: true},
+		1: {
+			creds:     key1,
+			accountID: "2bbf394c-193b-5b2a-9155-3b4732659ede",
+		},
+		2: {creds: key1, accountID: "", wantErr: true},
+		3: {creds: key1, accountID: "   ", wantErr: true},
+	}
+
+	for i, tt := range tests {
+		client := new(coinbase.Client)
+		client.SetCredentials(tt.creds)
+		client.SetHTTPRoundTripper(rt)
+
+		updatedAccount, err := client.SetAccountAsPrimary(tt.accountID)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("#%d: expected a non-nil error", i)
+			}
+			continue
+		}
+
+		if err != nil {
+			t.Errorf("#%d: unexpected error: %v", i, err)
+			continue
+		}
+
+		if updatedAccount == nil {
+			t.Errorf("#%d: expected a non-nil updated account", i)
+			continue
+		}
+		var blankAccount coinbase.Account
+		if *updatedAccount == blankAccount {
+			t.Errorf("#%d: expected a non blank updated account", i)
+		}
+		if !updatedAccount.Primary {
+			t.Errorf("#%d: expected at \"Primary\" to have been set", i)
 		}
 	}
 }
@@ -264,7 +312,7 @@ func TestUpdateAccount(t *testing.T) {
 		}
 		var blankAccount coinbase.Account
 		if *updatedAccount == blankAccount {
-			t.Errorf("#%d: expected a non blank updated account")
+			t.Errorf("#%d: expected a non blank updated account", i)
 		}
 	}
 }
@@ -359,6 +407,8 @@ const (
 	createAccountRoute = "/create-account"
 	updateAccountRoute = "/update-account"
 	deleteAccountRoute = "/delete-account"
+
+	setAccountAsPrimaryRoute = "/set-account-as-primary"
 )
 
 type profileWrap struct {
@@ -427,6 +477,8 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.createAccountRoundTrip(req)
 	case updateAccountRoute:
 		return b.updateAccountRoundTrip(req)
+	case setAccountAsPrimaryRoute:
+		return b.setAccountAsPrimaryRoundTrip(req)
 	case deleteAccountRoute:
 		return b.deleteAccountRoundTrip(req)
 	default:
@@ -533,6 +585,32 @@ func (b *backend) deleteAccountRoundTrip(req *http.Request) (*http.Response, err
 	}
 
 	return makeResp("No Content", http.StatusNoContent, nil), nil
+}
+func (b *backend) setAccountAsPrimaryRoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != "POST" {
+		return makeResp(`only accepting method "POST"`, http.StatusMethodNotAllowed, nil), nil
+	}
+
+	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
+		return badAuthResp, nil
+	}
+
+	// Expecting a URL path of the form:
+	// /v2/accounts/<account_id>/primary
+	splits := strings.Split(req.URL.Path, "/")
+	if len(splits) < 4 || splits[len(splits)-1] != "primary" {
+		return makeResp("invalid URL expecting /accounts/<account_id>/primary", http.StatusBadRequest, nil), nil
+	}
+	accountID := splits[len(splits)-2]
+
+	// Otherwise, retrieve and send back that requested account
+	fullPath := accountByIDPath(accountID + "-as-primary")
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusNotFound, nil), nil
+	}
+
+	return makeResp("OK", http.StatusOK, f), nil
 }
 
 func (b *backend) updateAccountRoundTrip(req *http.Request) (*http.Response, error) {

@@ -122,7 +122,11 @@ func (c *Client) hmacSignature(req *http.Request, timestampUnix int64) string {
 	}
 
 	mac := hmac.New(sha256.New, []byte(c.apiSecret))
-	sig := fmt.Sprintf("%d%s%s%s", timestampUnix, req.Method, req.URL.Path, body)
+	urlPath := req.URL.Path
+	if q := req.URL.Query(); len(q) > 0 {
+		urlPath += "?" + q.Encode()
+	}
+	sig := fmt.Sprintf("%d%s%s%s", timestampUnix, req.Method, urlPath, body)
 	mac.Write([]byte(sig))
 	return fmt.Sprintf("%x", mac.Sum(nil))
 }

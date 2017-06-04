@@ -143,3 +143,46 @@ func Example_client_SetAccountAsPrimary() {
 
 	fmt.Printf("Updated account; %+v\n", updatedAccount)
 }
+
+func Example_client_CreateAddress() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	address, err := client.CreateAddress(&coinbase.CreateAddressRequest{
+		AccountID: "82de7fcd-db72-5085-8ceb-bee19303080b",
+		Name:      "Ethereum-Account",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Created address: %#v\n", address)
+}
+
+func Example_client_ListAddresses() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	res, err := client.ListAddresses(&coinbase.AddressesRequest{
+		AccountID:        "82de7fcd-db72-5085-8ceb-bee19303080b",
+		AddressesPerPage: 1,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for page := range res.PagesChan {
+		if err := page.Err; err != nil {
+			log.Printf("Page #%d err: %v", page.PageNumber, err)
+			continue
+		}
+
+		for i, address := range page.Addresses {
+			fmt.Printf("Page #%d:: (%d) Account: %#v\n", page.PageNumber, i, address)
+		}
+	}
+}

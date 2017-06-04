@@ -92,7 +92,7 @@ type pagination struct {
 	NextURI     otils.NullableString `json:"next_uri"`
 }
 
-type pageWrap struct {
+type accountsPageWrap struct {
 	Pagination *pagination `json:"pagination"`
 	Accounts   []*Account  `json:"data"`
 }
@@ -211,21 +211,22 @@ func (c *Client) authAndRetrieveAccount(req *http.Request) (*Account, error) {
 	return aWrap.Account, nil
 }
 
-func (c *Client) ListAccounts(req *AccountsRequest) (*AccountsListResponse, error) {
-	if req == nil {
-		req = new(AccountsRequest)
-	}
-
-	maxPage := req.MaxPage
-	pageExceeds := func(pageNumber int64) bool {
+func maxPageChecker(maxPage int64) func(int64) bool {
+	return func(pageNumber int64) bool {
 		if maxPage <= 0 {
 			return false
 		}
 		return pageNumber > maxPage
 	}
+}
+
+func (c *Client) ListAccounts(req *AccountsRequest) (*AccountsListResponse, error) {
+	if req == nil {
+		req = new(AccountsRequest)
+	}
 
 	pagesChan := make(chan *AccountsPage)
-
+	pageExceeds := maxPageChecker(req.MaxPage)
 	canceler, cancelFn := makeCanceler()
 
 	go func() {
@@ -233,7 +234,7 @@ func (c *Client) ListAccounts(req *AccountsRequest) (*AccountsListResponse, erro
 
 		var throttleDuration time.Duration
 		if req.ThrottleDurationMs != NoThrottle && req.ThrottleDurationMs > 0 {
-			throttleDuration = 450 * time.Millisecond
+			throttleDuration = time.Duration(req.ThrottleDurationMs) * time.Millisecond
 		}
 
 		queryValues := make(url.Values)
@@ -273,7 +274,7 @@ func (c *Client) ListAccounts(req *AccountsRequest) (*AccountsListResponse, erro
 				pagesChan <- page
 				return
 			}
-			pWrap := new(pageWrap)
+			pWrap := new(accountsPageWrap)
 			if err := json.Unmarshal(blob, pWrap); err != nil {
 				page.Err = err
 				pagesChan <- page

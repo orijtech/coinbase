@@ -367,7 +367,9 @@ func TestListAccounts(t *testing.T) {
 
 		if len(errs) > 0 {
 			if !tt.wantErr {
-				t.Errorf("#%d: unexpected errors: %#v", i, errs)
+				for ie, err := range errs {
+					t.Errorf("#%d: (%d) unexpected errors: %#v", i, ie, err)
+				}
 			}
 			continue
 		}
@@ -380,10 +382,130 @@ func TestListAccounts(t *testing.T) {
 	}
 }
 
+func TestCreateAddress(t *testing.T) {
+	rt := &backend{route: createAddressRoute}
+	tests := [...]struct {
+		creds   *coinbase.Credentials
+		req     *coinbase.CreateAddressRequest
+		wantErr bool
+	}{
+		0: {creds: nil, wantErr: true},
+		1: {
+			creds: key1,
+			// No AccountID passed in.
+			req:     &coinbase.CreateAddressRequest{},
+			wantErr: true,
+		},
+		2: {
+			creds: key1, req: &coinbase.CreateAddressRequest{
+				AccountID: page2AccountID,
+				Name:      "Clockwise-Counterclockwise",
+			},
+		},
+	}
+
+	for i, tt := range tests {
+		client := new(coinbase.Client)
+		client.SetCredentials(tt.creds)
+		client.SetHTTPRoundTripper(rt)
+
+		addr, err := client.CreateAddress(tt.req)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("#%d: expected a non-nil error", i)
+			}
+			continue
+		}
+
+		if err != nil {
+			t.Errorf("#%d: unexpected error: %v", i, err)
+			continue
+		}
+
+		if addr == nil {
+			t.Errorf("#%d: expecting a non-blank address", i)
+			continue
+		}
+
+		var blankAddress coinbase.Address
+		if blankAddress == *addr {
+			t.Errorf("#%d: expecting a non-blank address", i)
+		}
+	}
+}
+
+func TestListAddresses(t *testing.T) {
+	rt := &backend{route: listAddressesRoute}
+	tests := [...]struct {
+		creds   *coinbase.Credentials
+		req     *coinbase.AddressesRequest
+		wantErr bool
+	}{
+		0: {creds: nil, wantErr: true},
+		1: {
+			creds: key1,
+			// No AccountID passed in.
+			req:     &coinbase.AddressesRequest{},
+			wantErr: true,
+		},
+		2: {
+			creds: key1, req: &coinbase.AddressesRequest{
+				AccountID: page2AccountID,
+			},
+		},
+	}
+
+	for i, tt := range tests {
+		client := new(coinbase.Client)
+		client.SetCredentials(tt.creds)
+		client.SetHTTPRoundTripper(rt)
+
+		// Speed up the tests by removing throttling
+		if tt.req != nil {
+			tt.req.ThrottleDurationMs = coinbase.NoThrottle
+		}
+
+		res, err := client.ListAddresses(tt.req)
+		if err != nil {
+			if !tt.wantErr {
+				t.Errorf("#%d: unexpected error: %v", i, err)
+			}
+			continue
+		}
+
+		var foundAddresses []*coinbase.Address
+		var errs []error
+		for page := range res.PagesChan {
+			if page.Err != nil {
+				errs = append(errs, page.Err)
+				continue
+			}
+			foundAddresses = append(foundAddresses, page.Addresses...)
+		}
+
+		if len(errs) > 0 {
+			if !tt.wantErr {
+				for ie, err := range errs {
+					t.Errorf("#%d: (%d) unexpected errors: %#v", i, ie, err)
+				}
+			}
+			continue
+		}
+
+		if len(foundAddresses) == 0 {
+			if !tt.wantErr {
+				t.Errorf("#%d: expecting at least one address", i)
+			}
+		}
+	}
+}
+
 const (
 	profID1 = "prof1"
 
 	accountID1 = "2bbf394c-193b-5b2a-9155-3b4732659ede"
+
+	addressID1 = "dd3183eb-af1d-5f5d-a90d-cbff946435ff"
 )
 
 func jsonify(v interface{}) []byte {
@@ -409,6 +531,9 @@ const (
 	deleteAccountRoute = "/delete-account"
 
 	setAccountAsPrimaryRoute = "/set-account-as-primary"
+
+	createAddressRoute = "/create-address"
+	listAddressesRoute = "/list-addresses"
 )
 
 type profileWrap struct {
@@ -471,6 +596,8 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.userProfileRoundTrip(req)
 	case accountsRoute:
 		return b.accountsRoundTrip(req)
+	case createAddressRoute:
+		return b.createAddressRoundTrip(req)
 	case findAccountRoute:
 		return b.findAccountByIDRoundTrip(req)
 	case createAccountRoute:
@@ -479,6 +606,8 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.updateAccountRoundTrip(req)
 	case setAccountAsPrimaryRoute:
 		return b.setAccountAsPrimaryRoundTrip(req)
+	case listAddressesRoute:
+		return b.listAddressesRoundTrip(req)
 	case deleteAccountRoute:
 		return b.deleteAccountRoundTrip(req)
 	default:
@@ -586,6 +715,39 @@ func (b *backend) deleteAccountRoundTrip(req *http.Request) (*http.Response, err
 
 	return makeResp("No Content", http.StatusNoContent, nil), nil
 }
+
+func addressesPathByAccountID(accountID string) string {
+	return fmt.Sprintf("./testdata/%s-addresses.json", accountID)
+}
+
+func (b *backend) listAddressesRoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != "GET" {
+		return makeResp(`only accepting method "GET"`, http.StatusMethodNotAllowed, nil), nil
+	}
+
+	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
+		return badAuthResp, nil
+	}
+
+	// Expecting a URL path of the form:
+	// /v2/accounts/<account_id>/addresses
+	splits := strings.Split(req.URL.Path, "/")
+	if len(splits) < 4 || splits[len(splits)-1] != "addresses" {
+		return makeResp("invalid URL expecting /accounts/<account_id>/addresses", http.StatusBadRequest, nil), nil
+	}
+	accountID := splits[len(splits)-2]
+
+	// Otherwise, retrieve and send back that requested account
+	fullPath := addressesPathByAccountID(accountID)
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusNotFound, nil), nil
+	}
+
+	return makeResp("OK", http.StatusOK, f), nil
+
+}
+
 func (b *backend) setAccountAsPrimaryRoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Method != "POST" {
 		return makeResp(`only accepting method "POST"`, http.StatusMethodNotAllowed, nil), nil
@@ -694,6 +856,47 @@ func (b *backend) createAccountRoundTrip(req *http.Request) (*http.Response, err
 	return makeResp("OK", http.StatusOK, f), nil
 }
 
+func addressPathByID(id string) string {
+	return fmt.Sprintf("./testdata/address-%s.json", id)
+}
+
+func (b *backend) createAddressRoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != "POST" {
+		return makeResp(`only accepting method "POST"`, http.StatusMethodNotAllowed, nil), nil
+	}
+
+	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
+		return badAuthResp, nil
+	}
+
+	if req.Body == nil {
+		return makeResp("expecting a non-empty body", http.StatusBadRequest, nil), nil
+	}
+
+	blob, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusBadRequest, nil), nil
+	}
+	recv := new(coinbase.CreateAddressRequest)
+	if err := json.Unmarshal(blob, recv); err != nil {
+		return makeResp(err.Error(), http.StatusBadRequest, nil), nil
+	}
+	var blankCReq coinbase.CreateAddressRequest
+	if *recv == blankCReq {
+		return makeResp("failed to parse a createAddressRequest", http.StatusBadRequest, nil), nil
+	}
+
+	// Otherwise, now send back an address
+	fullPath := addressPathByID(addressID1)
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusNotFound, nil), nil
+	}
+
+	return makeResp("OK", http.StatusOK, f), nil
+}
+
+
 func (b *backend) userProfileRoundTrip(req *http.Request) (*http.Response, error) {
 	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
 		return badAuthResp, nil
@@ -766,7 +969,11 @@ func (b *backend) badAuthCheck(req *http.Request) *http.Response {
 	}
 
 	mac := hmac.New(sha256.New, []byte(akey.APISecret))
-	mac.Write([]byte(fmt.Sprintf("%s%s%s%s", timestamp, req.Method, req.URL.Path, body)))
+	urlPath := req.URL.Path
+	if q := req.URL.Query(); len(q) > 0 {
+		urlPath += "?" + q.Encode()
+	}
+	mac.Write([]byte(fmt.Sprintf("%s%s%s%s", timestamp, req.Method, urlPath, body)))
 	wantSignature := fmt.Sprintf("%x", mac.Sum(nil))
 	if gotSignature != wantSignature {
 		return makeResp("Invalid signature", http.StatusBadRequest, nil)

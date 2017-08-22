@@ -186,3 +186,20 @@ func Example_client_ListAddresses() {
 		}
 	}
 }
+
+func Example_client_ExchangeRate() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+	from := coinbase.BTC
+	ratesResp, err := client.ExchangeRate(from)
+	if err != nil {
+		log.Fatalf("exchangeRate err: %v", err)
+	}
+
+	fmt.Printf("From: %s\n", ratesResp.From)
+	for currency, rate := range ratesResp.Rates {
+		fmt.Printf("%s:%s ==> %.3f\n", from, currency, rate)
+	}
+}

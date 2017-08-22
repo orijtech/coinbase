@@ -534,6 +534,8 @@ const (
 
 	createAddressRoute = "/create-address"
 	listAddressesRoute = "/list-addresses"
+
+	exchangeRateRoute = "/rate"
 )
 
 type profileWrap struct {
@@ -610,6 +612,8 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.listAddressesRoundTrip(req)
 	case deleteAccountRoute:
 		return b.deleteAccountRoundTrip(req)
+	case exchangeRateRoute:
+		return b.exchangeRateRoundTrip(req)
 	default:
 		return makeResp("no such route", http.StatusNotFound, nil), nil
 	}
@@ -682,6 +686,26 @@ func (b *backend) myProfileRoundTrip(req *http.Request) (*http.Response, error) 
 		return makeResp(err.Error(), http.StatusNotFound, nil), nil
 	}
 
+	return makeResp("OK", http.StatusOK, f), nil
+}
+
+func (b *backend) exchangeRateRoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != "GET" {
+		return makeResp(`only accepting method "GET"`, http.StatusMethodNotAllowed, nil), nil
+	}
+
+	qv := req.URL.Query()
+	currencyStr := qv.Get("currency")
+	if currencyStr == "" {
+		// Let's match the gdax API which returns by
+		// default USD if no currency has been specified.
+		currencyStr = "BTC"
+	}
+	rateFilepath := fmt.Sprintf("./testdata/rates_%s.json", currencyStr)
+	f, err := os.Open(rateFilepath)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusNotFound, nil), nil
+	}
 	return makeResp("OK", http.StatusOK, f), nil
 }
 
@@ -896,7 +920,6 @@ func (b *backend) createAddressRoundTrip(req *http.Request) (*http.Response, err
 	return makeResp("OK", http.StatusOK, f), nil
 }
 
-
 func (b *backend) userProfileRoundTrip(req *http.Request) (*http.Response, error) {
 	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
 		return badAuthResp, nil
@@ -980,4 +1003,38 @@ func (b *backend) badAuthCheck(req *http.Request) *http.Response {
 	}
 
 	return nil
+}
+
+func TestExchange(t *testing.T) {
+	rt := &backend{route: exchangeRateRoute}
+	tests := [...]struct {
+		from    coinbase.Currency
+		wantErr bool
+	}{
+		0: {coinbase.USD, false},
+		1: {"unknown", true},
+		2: {coinbase.LTC, false},
+		3: {"", false}, // Must return the default currency
+	}
+	client := new(coinbase.Client)
+	client.SetHTTPRoundTripper(rt)
+
+	for i, tt := range tests {
+		resp, err := client.ExchangeRate(tt.from)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("#%d: want non-nil error", i)
+			}
+			continue
+		}
+
+		if err != nil {
+			t.Errorf("#%d: unexpected err: %v", i, err)
+			continue
+		}
+
+		if resp == nil || len(resp.Rates) == 0 {
+			t.Errorf("#%d: want more than rates", i)
+		}
+	}
 }

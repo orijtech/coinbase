@@ -95,6 +95,12 @@ func NewDefaultClient() (*Client, error) {
 	return &Client{apiKey: apiKey, apiSecret: apiSecret}, nil
 }
 
+const (
+	hdrTimestampKey = "CB-ACCESS-TIMESTAMP"
+	hdrAPIKeyKey    = "CB-ACCESS-KEY"
+	hdrSignatureKey = "CB-ACCESS-SIGN"
+)
+
 func (c *Client) signAndSetHeaders(req *http.Request) {
 	// Expecting headers:
 	// * CB-ACCESS-KEY
@@ -103,9 +109,9 @@ func (c *Client) signAndSetHeaders(req *http.Request) {
 	// * CB-ACCESS-TIMESTAMP: Number of seconds since Unix Epoch of the request
 	timestamp := time.Now().Unix()
 	req.Header.Set("CB-VERSION", apiVersion)
-	req.Header.Set("CB-ACCESS-TIMESTAMP", fmt.Sprintf("%d", timestamp))
-	req.Header.Set("CB-ACCESS-KEY", c.apiKey)
-	req.Header.Set("CB-ACCESS-SIGN", c.hmacSignature(req, timestamp))
+	req.Header.Set(hdrTimestampKey, fmt.Sprintf("%d", timestamp))
+	req.Header.Set(hdrAPIKeyKey, c.apiKey)
+	req.Header.Set(hdrSignatureKey, c.hmacSignature(req, timestamp))
 }
 
 func (c *Client) hmacSignature(req *http.Request, timestampUnix int64) string {

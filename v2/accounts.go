@@ -48,11 +48,18 @@ type Balance struct {
 	Currency string `json:"currency"`
 }
 
-func makeCanceler() (chan struct{}, func()) {
+var errAlreadyClosed = errors.New("already closed")
+
+func makeCanceler() (chan struct{}, func() error) {
 	signaler := make(chan struct{}, 1)
 	var closeOnce sync.Once
-	fn := func() {
-		closeOnce.Do(func() { close(signaler) })
+	fn := func() error {
+		var err error = errAlreadyClosed
+		closeOnce.Do(func() {
+			err = nil
+			close(signaler)
+		})
+		return err
 	}
 	return signaler, fn
 }
@@ -314,5 +321,5 @@ func (c *Client) ListAccounts(req *AccountsRequest) (*AccountsListResponse, erro
 
 type AccountsListResponse struct {
 	PagesChan chan *AccountsPage
-	Cancel    func()
+	Cancel    func() error
 }

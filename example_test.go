@@ -203,3 +203,21 @@ func Example_client_ExchangeRate() {
 		fmt.Printf("%s:%s ==> %.3f\n", from, currency, rate)
 	}
 }
+
+func Example_client_Subscribe() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+	sres, err := client.Subscribe(&coinbase.Subscription{
+		Currencies:   []string{"BTC-USD", "ETH-USD", "LTC-USD"},
+		Authenticate: true,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for msg := range sres.MessagesChan {
+		log.Printf("msg: %+v\n", msg)
+	}
+}

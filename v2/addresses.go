@@ -48,7 +48,7 @@ type AddressPage struct {
 
 type AddressesResponse struct {
 	PagesChan chan *AddressPage `json:"page"`
-	Cancel    func()
+	Cancel    func() error
 }
 
 type AddressesRequest struct {

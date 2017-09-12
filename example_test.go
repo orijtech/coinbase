@@ -17,6 +17,7 @@ package coinbase_test
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/orijtech/coinbase/v2"
 )
@@ -219,5 +220,27 @@ func Example_client_Subscribe() {
 
 	for msg := range sres.MessagesChan {
 		log.Printf("msg: %+v\n", msg)
+	}
+}
+
+func Example_client_CandleSticks() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+	csres, err := client.CandleSticks(&coinbase.CandleStickRequest{
+		Product:   "ETH-USD",
+		StartTime: time.Date(2017, 2, 1, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2017, 9, 3, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer csres.Cancel()
+
+	for csPage := range csres.PagesChan {
+		for i, cstick := range csPage.CandleSticks {
+			log.Printf("#%d: cstick: %#v\n", i, cstick)
+		}
 	}
 }

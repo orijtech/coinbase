@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // Reference: https://developers.coinbase.com/api/v2#exchange-rates
@@ -46,13 +47,30 @@ type exchangeRateResponseWrap struct {
 	Data *ExchangeRateResponse `json:"data"`
 }
 
+// From can either be of the form:
+// * PRIMARY --> ETH
+// * PRIMARY-SECONDARY --> BTC-USD
+// * PRIMARY-SECONDARY1-SECONDARY2-SECONDARY3... --> LTC-USD-ETH-BTC
+// Where the last two forms prune out any pairs that aren't the secondaries
 func (c *Client) ExchangeRate(from Currency) (*ExchangeRateResponse, error) {
 	// Exchange Rate reference https://developers.coinbase.com/api/v2#exchange-rates
 	// is unauthenticated.
+	// GDAX exchange rates are of the form "<PRIMARY_CURRENCY>"
+	// If the user has requested "<PRIMARY_CURRENCY>-<SECONDARY_CURRENCY>"
+	// That means that they are only interested in the primary-secondary rate.
+	primary := string(from)
+	var secondaries []string
+	splits := strings.Split(primary, "-")
+	if len(splits) > 0 {
+		primary = splits[0]
+		if len(splits) > 1 {
+			secondaries = splits[1:]
+		}
+	}
 	fullURL := fmt.Sprintf("%s/exchange-rates", baseURL)
 	if from != "" {
 		qv := make(url.Values)
-		qv.Set("currency", string(from))
+		qv.Set("currency", primary)
 		fullURL = fmt.Sprintf("%s?%s", fullURL, qv.Encode())
 	}
 
@@ -70,5 +88,17 @@ func (c *Client) ExchangeRate(from Currency) (*ExchangeRateResponse, error) {
 	if err := json.Unmarshal(blob, cwrap); err != nil {
 		return nil, err
 	}
+	if len(secondaries) == 0 {
+		return cwrap.Data, nil
+	}
+
+	// Otherwise, they've only asked for the <primary>-<secondary1>-<secondary2>... rate
+	data := cwrap.Data.Rates
+	prunedRates := make(map[Currency]Value)
+	for _, secondary := range secondaries {
+		secCurr := Currency(secondary)
+		prunedRates[secCurr] = data[secCurr]
+	}
+	cwrap.Data.Rates = prunedRates
 	return cwrap.Data, nil
 }

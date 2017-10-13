@@ -193,7 +193,7 @@ func Example_client_ExchangeRate() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	from := coinbase.BTC
+	from := coinbase.Currency("BTC-USD-ETH")
 	ratesResp, err := client.ExchangeRate(from)
 	if err != nil {
 		log.Fatalf("exchangeRate err: %v", err)

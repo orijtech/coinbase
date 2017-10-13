@@ -21,8 +21,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/orijtech/otils"
 	"github.com/odeke-em/semalim"
+	"github.com/orijtech/otils"
 )
 
 type CandleStickRequest struct {

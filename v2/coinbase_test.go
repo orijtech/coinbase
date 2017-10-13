@@ -1005,7 +1005,7 @@ func (b *backend) badAuthCheck(req *http.Request) *http.Response {
 	return nil
 }
 
-func TestExchange(t *testing.T) {
+func TestExchangeRate(t *testing.T) {
 	rt := &backend{route: exchangeRateRoute}
 	tests := [...]struct {
 		from    coinbase.Currency
@@ -1013,8 +1013,9 @@ func TestExchange(t *testing.T) {
 	}{
 		0: {coinbase.USD, false},
 		1: {"unknown", true},
-		2: {coinbase.LTC, false},
-		3: {"", false}, // Must return the default currency
+		2: {"LTC-USD", false},
+		3: {"LTC-USD-BTC-ETH", false},
+		4: {"", false}, // Must return the default currency
 	}
 	client := new(coinbase.Client)
 	client.SetHTTPRoundTripper(rt)

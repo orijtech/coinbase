@@ -88,6 +88,7 @@ func (c *Client) ExchangeRate(from Currency) (*ExchangeRateResponse, error) {
 	if err := json.Unmarshal(blob, cwrap); err != nil {
 		return nil, err
 	}
+	cwrap.Data.From = Currency(primary)
 	if len(secondaries) == 0 {
 		return cwrap.Data, nil
 	}

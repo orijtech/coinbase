@@ -37,17 +37,20 @@ const (
 )
 
 type Client struct {
-	sync.RWMutex
+	mu sync.RWMutex
 
 	apiKey    string
 	apiSecret string
+
+	passphrase string
 
 	rt http.RoundTripper
 }
 
 type Credentials struct {
-	APIKey    string
-	APISecret string
+	APIKey     string
+	APISecret  string
+	Passphrase string
 }
 
 var (
@@ -58,7 +61,7 @@ func NewClient(creds *Credentials) (*Client, error) {
 	if creds == nil {
 		return nil, errNilCredentials
 	}
-	c := &Client{apiKey: creds.APIKey, apiSecret: creds.APISecret}
+	c := &Client{apiKey: creds.APIKey, apiSecret: creds.APISecret, passphrase: creds.Passphrase}
 	return c, nil
 }
 
@@ -67,16 +70,17 @@ func (c *Client) SetCredentials(creds *Credentials) {
 		return
 	}
 
-	c.Lock()
-	defer c.Unlock()
-
+	c.mu.Lock()
 	c.apiKey = creds.APIKey
 	c.apiSecret = creds.APISecret
+	c.passphrase = creds.Passphrase
+	c.mu.Unlock()
 }
 
 const (
-	envCoinbaseAPIKey    = "COINBASE_API_KEY"
-	envCoinbaseAPISecret = "COINBASE_API_SECRET"
+	envCoinbaseAPIKey     = "COINBASE_API_KEY"
+	envCoinbaseAPISecret  = "COINBASE_API_SECRET"
+	envCoinbasePassphrase = "COINBASE_API_PASSPHRASE"
 
 	apiVersion = "2016-05-16"
 )
@@ -92,14 +96,30 @@ func NewDefaultClient() (*Client, error) {
 	if apiSecret == "" {
 		errorsList = append(errorsList, fmt.Sprintf("could not find %q in your environment", envCoinbaseAPISecret))
 	}
-	return &Client{apiKey: apiKey, apiSecret: apiSecret}, nil
+	if len(errorsList) > 0 {
+		return nil, errors.New(strings.Join(errorsList, "\n"))
+	}
+
+	// Passphrase is an optional field that's only used when
+	// purchasing, canceling and viewing private content.
+	passphrase := strings.TrimSpace(os.Getenv(envCoinbasePassphrase))
+
+	return &Client{apiKey: apiKey, apiSecret: apiSecret, passphrase: passphrase}, nil
 }
 
 const (
-	hdrTimestampKey = "CB-ACCESS-TIMESTAMP"
-	hdrAPIKeyKey    = "CB-ACCESS-KEY"
-	hdrSignatureKey = "CB-ACCESS-SIGN"
+	hdrTimestampKey  = "CB-ACCESS-TIMESTAMP"
+	hdrAPIKeyKey     = "CB-ACCESS-KEY"
+	hdrSignatureKey  = "CB-ACCESS-SIGN"
+	hdrPassphraseKey = "CB-ACCESS-PASSPHRASE"
+	hdrVersionKey    = "CB-VERSION"
 )
+
+func (c *Client) SetPassphrase(passphrase string) {
+	c.mu.Lock()
+	c.passphrase = passphrase
+	c.mu.Unlock()
+}
 
 func (c *Client) signAndSetHeaders(req *http.Request) {
 	// Expecting headers:
@@ -108,8 +128,11 @@ func (c *Client) signAndSetHeaders(req *http.Request) {
 	//    + HMAC(timestamp + method + requestPath + body)
 	// * CB-ACCESS-TIMESTAMP: Number of seconds since Unix Epoch of the request
 	timestamp := time.Now().Unix()
-	req.Header.Set("CB-VERSION", apiVersion)
+	req.Header.Set(hdrVersionKey, apiVersion)
 	req.Header.Set(hdrTimestampKey, fmt.Sprintf("%d", timestamp))
+	if c.passphrase != "" {
+		req.Header.Set(hdrPassphraseKey, c.passphrase)
+	}
 	req.Header.Set(hdrAPIKeyKey, c.apiKey)
 	req.Header.Set(hdrSignatureKey, c.hmacSignature(req, timestamp))
 }
@@ -138,16 +161,16 @@ func (c *Client) hmacSignature(req *http.Request, timestampUnix int64) string {
 }
 
 func (c *Client) SetHTTPRoundTripper(rt http.RoundTripper) {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	c.rt = rt
 }
 
 func (c *Client) httpClient() *http.Client {
-	c.RLock()
+	c.mu.RLock()
 	rt := c.rt
-	c.RUnlock()
+	c.mu.RUnlock()
 	if rt == nil {
 		rt = http.DefaultTransport
 	}

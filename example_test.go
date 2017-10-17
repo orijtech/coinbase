@@ -244,3 +244,25 @@ func Example_client_CandleSticks() {
 		}
 	}
 }
+
+func Example_client_Order() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+	client.SetPassphrase("I5 2tHis the pHr453?")
+	orderResp, err := client.Order(&coinbase.Order{
+		Product:     "BTC-USD",
+		Side:        coinbase.SideBuy,
+		TimeInForce: coinbase.GTT,
+		CancelAfter: coinbase.Day,
+		Price:       10,
+		PostOnly:    true,
+
+		CustomOrderID: "06524e0c-5fa9-43f9-bf2f-c2a97cbb60fe",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Your order: %#v\n", orderResp)
+}

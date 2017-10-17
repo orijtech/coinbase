@@ -24,6 +24,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -520,6 +521,7 @@ type backend struct {
 var _ http.RoundTripper = (*backend)(nil)
 
 const (
+	orderRoute       = "/orders"
 	myProfileRoute   = "/user"
 	userProfileRoute = "/users"
 	accountsRoute    = "/accounts"
@@ -614,6 +616,8 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.deleteAccountRoundTrip(req)
 	case exchangeRateRoute:
 		return b.exchangeRateRoundTrip(req)
+	case orderRoute:
+		return b.orderRoundTrip(req)
 	default:
 		return makeResp("no such route", http.StatusNotFound, nil), nil
 	}
@@ -687,6 +691,51 @@ func (b *backend) myProfileRoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	return makeResp("OK", http.StatusOK, f), nil
+}
+
+var blankOrder = new(coinbase.Order)
+
+func (b *backend) orderRoundTrip(req *http.Request) (*http.Response, error) {
+	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
+		return badAuthResp, nil
+	}
+	if req.Method != "POST" {
+		return makeResp(`only accepting method "POST"`, http.StatusMethodNotAllowed, nil), nil
+	}
+	// Also ensure that the passphrase
+	// header if the client has 2FA enabled.
+	if passphrase := req.Header.Get("CB-ACCESS-PASSPHRASE"); passphrase == "" {
+		badResp := makeResp(`expecting header "CB-ACCESS-PASSPHRASE" to have been set`, http.StatusUnauthorized, nil)
+		return badResp, nil
+	}
+	blob, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusBadRequest, nil), nil
+	}
+	oreq := new(coinbase.Order)
+	if err := json.Unmarshal(blob, oreq); err != nil {
+		return makeResp(err.Error(), http.StatusBadRequest, nil), nil
+	}
+	if reflect.DeepEqual(oreq, blankOrder) {
+		return makeResp("expecting a non-blank request", http.StatusBadRequest, nil), nil
+	}
+	if err := oreq.Validate(); err != nil {
+		return makeResp(err.Error(), http.StatusBadRequest, nil), nil
+	}
+	side := coinbase.SideBuy
+	if ss := oreq.Side; ss != "" {
+		side = ss
+	}
+	path := fmt.Sprintf("./testdata/%s-%s-%v.json", oreq.Product, side, oreq.PostOnly)
+	return makeRespFromFile(path)
+}
+
+func makeRespFromFile(p string) (*http.Response, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return makeResp(err.Error(), http.StatusInternalServerError, nil), nil
+	}
+	return makeResp("200 OK", http.StatusOK, f), nil
 }
 
 func (b *backend) exchangeRateRoundTrip(req *http.Request) (*http.Response, error) {
@@ -942,7 +991,7 @@ func (b *backend) userProfileRoundTrip(req *http.Request) (*http.Response, error
 }
 
 var (
-	key1 = &coinbase.Credentials{APIKey: "unoKey", APISecret: "unoSecret$"}
+	key1 = &coinbase.Credentials{APIKey: "unoKey", APISecret: "unoSecret$", Passphrase: "^Foo$Bar<"}
 )
 
 var keyToAccessKey = map[string]*coinbase.Credentials{
@@ -1036,6 +1085,65 @@ func TestExchangeRate(t *testing.T) {
 
 		if resp == nil || len(resp.Rates) == 0 {
 			t.Errorf("#%d: want more than rates", i)
+		}
+	}
+}
+
+func TestOrder(t *testing.T) {
+	rt := &backend{route: orderRoute}
+
+	tests := [...]struct {
+		order   *coinbase.Order
+		creds   *coinbase.Credentials
+		wantErr string
+	}{
+		0: {nil, key1, "non-blank product"},
+		1: {&coinbase.Order{}, key1, "non-blank product"},
+		2: {&coinbase.Order{Product: "BTC-USD"}, key1, "price to have been set"},
+		3: {&coinbase.Order{Product: "BTC-USD", Price: 100}, key1, ""},
+		4: {&coinbase.Order{Product: "BTC-USD", Price: 100}, nil, "Unauthorized"},
+		5: {&coinbase.Order{Product: "Fake-Product", Price: 100}, key1, "no such"},
+		6: {
+			&coinbase.Order{
+				Product:     "BTC-USD",
+				Price:       100,
+				CancelAfter: coinbase.Day,
+			},
+			key1, "to be GTT",
+		},
+		7: {
+			&coinbase.Order{
+				Product:     "BTC-USD",
+				Price:       100,
+				TimeInForce: coinbase.GTT,
+				CancelAfter: coinbase.Day,
+			},
+			key1, "",
+		},
+	}
+
+	for i, tt := range tests {
+		client := new(coinbase.Client)
+		client.SetHTTPRoundTripper(rt)
+		client.SetCredentials(tt.creds)
+
+		ores, err := client.Order(tt.order)
+		if tt.wantErr != "" {
+			if err == nil {
+				t.Errorf("#%d: got a nil error", i)
+			} else if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("#%d: got=%q\nwant substring: %q", i, err, tt.wantErr)
+			}
+			continue
+		}
+
+		if err != nil {
+			t.Errorf("#%d: unexpected error: %v", i, err)
+			continue
+		}
+
+		if ores == nil {
+			t.Errorf("#%d: wanted back a response", i)
 		}
 	}
 }

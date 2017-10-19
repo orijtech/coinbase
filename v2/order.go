@@ -175,7 +175,9 @@ type Order struct {
 }
 
 var (
-	errBlankPrice = errors.New("expecting price to have been set")
+	errBlankPriceOrSize = errors.New("expecting either price or size to have been set")
+
+	errBlankSide = errors.New("expecting side to be set")
 
 	errCancelAfterWithoutGTT = errors.New("CancelAfter if set requires TimeInForce to be GTT")
 )
@@ -184,8 +186,11 @@ func (o *Order) Validate() error {
 	if o == nil || o.Product == "" {
 		return errBlankProduct
 	}
-	if o.Price <= 0 {
-		return errBlankPrice
+	if o.Price <= 0 && o.Size <= 0 {
+		return errBlankPriceOrSize
+	}
+	if o.Side == "" {
+		return errBlankSide
 	}
 	if o.CancelAfter != "" && o.TimeInForce != GTT {
 		return errCancelAfterWithoutGTT

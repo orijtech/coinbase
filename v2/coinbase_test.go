@@ -1099,14 +1099,20 @@ func TestOrder(t *testing.T) {
 	}{
 		0: {nil, key1, "non-blank product"},
 		1: {&coinbase.Order{}, key1, "non-blank product"},
-		2: {&coinbase.Order{Product: "BTC-USD"}, key1, "price to have been set"},
-		3: {&coinbase.Order{Product: "BTC-USD", Price: 100}, key1, ""},
-		4: {&coinbase.Order{Product: "BTC-USD", Price: 100}, nil, "Unauthorized"},
-		5: {&coinbase.Order{Product: "Fake-Product", Price: 100}, key1, "no such"},
+		2: {&coinbase.Order{Product: "BTC-USD"}, key1, "either price or size to have been set"},
+		3: {
+			&coinbase.Order{Product: "BTC-USD", Price: 100, Side: coinbase.SideSell}, key1, "",
+		},
+		4: {&coinbase.Order{Side: coinbase.SideBuy, Product: "BTC-USD", Price: 100}, nil, "Unauthorized"},
+		5: {
+			&coinbase.Order{Product: "Fake-Product", Side: coinbase.SideSell, Price: 100},
+			key1, "no such",
+		},
 		6: {
 			&coinbase.Order{
 				Product:     "BTC-USD",
 				Price:       100,
+				Side:        coinbase.SideSell,
 				CancelAfter: coinbase.Day,
 			},
 			key1, "to be GTT",
@@ -1114,7 +1120,8 @@ func TestOrder(t *testing.T) {
 		7: {
 			&coinbase.Order{
 				Product:     "BTC-USD",
-				Price:       100,
+				Size:        94.5,
+				Side:        coinbase.SideBuy,
 				TimeInForce: coinbase.GTT,
 				CancelAfter: coinbase.Day,
 			},

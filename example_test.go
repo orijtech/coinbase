@@ -266,3 +266,15 @@ func Example_client_Order() {
 	}
 	log.Printf("Your order: %#v\n", orderResp)
 }
+
+func Example_client_Ticker() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+	ticker, err := client.Ticker("ETH-USD")
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("ticker: %+v\n", ticker)
+}

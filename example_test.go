@@ -278,3 +278,16 @@ func Example_client_Ticker() {
 	}
 	log.Printf("ticker: %+v\n", ticker)
 }
+
+func Example_client_CancelOrder() {
+	client, err := coinbase.NewDefaultClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+	orderID := "54c5dddd-ac4a-4d19-9931-8171533b998a"
+	err = client.CancelOrder(orderID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Successfully cancelled order %q", orderID)
+}

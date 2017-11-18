@@ -538,6 +538,7 @@ const (
 	listAddressesRoute = "/list-addresses"
 
 	exchangeRateRoute = "/rate"
+	cancelOrderRoute  = "/cancel-order"
 )
 
 type profileWrap struct {
@@ -618,6 +619,8 @@ func (b *backend) RoundTrip(req *http.Request) (*http.Response, error) {
 		return b.exchangeRateRoundTrip(req)
 	case orderRoute:
 		return b.orderRoundTrip(req)
+	case cancelOrderRoute:
+		return b.cancelOrderRoundTrip(req)
 	default:
 		return makeResp("no such route", http.StatusNotFound, nil), nil
 	}
@@ -728,6 +731,48 @@ func (b *backend) orderRoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	path := fmt.Sprintf("./testdata/%s-%s-%v.json", oreq.Product, side, oreq.PostOnly)
 	return makeRespFromFile(path)
+}
+
+const (
+	orderID1 = "order-1"
+	orderID2 = "order-X"
+)
+
+var knownOrders = map[string]bool{
+	orderID1: true,
+	orderID2: true,
+}
+
+func (b *backend) cancelOrderRoundTrip(req *http.Request) (*http.Response, error) {
+	if badAuthResp := b.badAuthCheck(req); badAuthResp != nil {
+		return badAuthResp, nil
+	}
+	if req.Method != "DELETE" {
+		return makeResp(`only accepting method "DELETE"`, http.StatusMethodNotAllowed, nil), nil
+	}
+	// Also ensure that the passphrase
+	// header if the client has 2FA enabled.
+	if passphrase := req.Header.Get("CB-ACCESS-PASSPHRASE"); passphrase == "" {
+		badResp := makeResp(`expecting header "CB-ACCESS-PASSPHRASE" to have been set`, http.StatusUnauthorized, nil)
+		return badResp, nil
+	}
+
+	splits := strings.Split(req.URL.Path, "/")
+	// Expecting the path to like this: "/orders/<ORDER_ID>"
+	if len(splits) < 2 || splits[len(splits)-2] != "orders" {
+		badResp := makeResp(`expecting path "/orders/<ORDER_ID>"`, http.StatusUnauthorized, nil)
+		return badResp, nil
+	}
+	orderID := splits[len(splits)-1]
+	if orderID == "" {
+		badResp := makeResp(`expecting a non blank orderID in path "/orders/<ORDER_ID>"`, http.StatusUnauthorized, nil)
+		return badResp, nil
+	}
+	if _, knownOrderID := knownOrders[orderID]; !knownOrderID {
+		badResp := makeResp("unknown orderID", http.StatusUnauthorized, nil)
+		return badResp, nil
+	}
+	return makeResp("200 OK", http.StatusOK, nil), nil
 }
 
 func makeRespFromFile(p string) (*http.Response, error) {
@@ -1151,6 +1196,41 @@ func TestOrder(t *testing.T) {
 
 		if ores == nil {
 			t.Errorf("#%d: wanted back a response", i)
+		}
+	}
+}
+
+func TestCancelOrder(t *testing.T) {
+	rt := &backend{route: cancelOrderRoute}
+
+	tests := []struct {
+		orderID string
+		wantErr string
+		creds   *coinbase.Credentials
+	}{
+		{"", "Unauthorized", nil},
+		{"", "non blank orderID", key1},
+		{"foo", "Unauthorized", nil},
+		{orderID1, "", key1},
+	}
+
+	for i, tt := range tests {
+		client := new(coinbase.Client)
+		client.SetHTTPRoundTripper(rt)
+		client.SetCredentials(tt.creds)
+
+		err := client.CancelOrder(tt.orderID)
+		if tt.wantErr != "" {
+			if err == nil {
+				t.Errorf("#%d: want non-nil error", i)
+			} else if g, w := err.Error(), tt.wantErr; !strings.Contains(g, w) {
+				t.Errorf("#%d\ngot: %q\nwant substring: %q", i, g, w)
+			}
+			continue
+		}
+
+		if err != nil {
+			t.Errorf("#%d: unexpected error: %v", i, err)
 		}
 	}
 }
